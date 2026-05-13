@@ -15,6 +15,14 @@ export const congressScraperQueue = new Queue('congress-scraper', {
   },
 })
 
+export const openStatesScraperQueue = new Queue('openstates-scraper', {
+  connection: getRedisConnection(),
+  defaultJobOptions: {
+    removeOnComplete: 100,
+    removeOnFail: 500,
+  },
+})
+
 // Stub for prompt 5 — summarization worker reads from this queue
 export const summarizeQueue = new Queue('summarize', {
   connection: getRedisConnection(),
