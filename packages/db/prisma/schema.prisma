@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum DocumentType {
+  bill
+  resolution
+  motion
+  ordinance
+  minutes
+  agenda
+  amendment
+}
+
+enum JurisdictionLevel {
+  federal
+  state
+  county
+  city
+  school_board
+  special_district
+}
+
+enum DocumentStatus {
+  introduced
+  in_committee
+  passed
+  failed
+  signed
+  vetoed
+}
+
+enum PoliticianRole {
+  sponsor
+  cosponsor
+  voted_yes
+  voted_no
+  voted_abstain
+  author
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  expired
+  cancelled
+}
+
+enum NotificationType {
+  new_document
+  status_change
+  upcoming_meeting
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model CivicDocument {
+  id               String            @id @default(cuid())
+  type             DocumentType
+  level            JurisdictionLevel
+  jurisdiction     String
+  jurisdictionFips String?
+  title            String
+  fullText         String
+  summary          String?
+  status           DocumentStatus
+  topics           String[]
+  sourceUrl        String
+  introducedDate   DateTime
+  lastActionDate   DateTime
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  politicians DocumentPolitician[]
+  notifications Notification[]
+
+  @@index([jurisdiction])
+  @@index([level])
+  @@index([status])
+  @@index([type])
+}
+
+model Politician {
+  id             String            @id @default(cuid())
+  name           String
+  title          String
+  party          String
+  district       String
+  level          JurisdictionLevel
+  jurisdiction   String
+  photoUrl       String?
+  contactEmail   String?
+  contactPhone   String?
+  contactFormUrl String?
+  bioguideId     String?           @unique
+  sourceIds      Json
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  documents DocumentPolitician[]
+
+  @@index([jurisdiction])
+  @@index([level])
+}
+
+model DocumentPolitician {
+  documentId  String
+  politicianId String
+  role        PoliticianRole
+
+  document   CivicDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  politician Politician    @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, politicianId, role])
+}
+
+model User {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  trialStartedAt     DateTime?
+  subscriptionStatus SubscriptionStatus @default(trial)
+  revenueCatUserId   String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  jurisdictions UserJurisdiction[]
+  notifications Notification[]
+}
+
+model UserJurisdiction {
+  userId       String
+  jurisdiction String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, jurisdiction])
+  @@index([jurisdiction])
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  documentId String?
+  type       NotificationType
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document CivicDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+  @@index([documentId])
+}
