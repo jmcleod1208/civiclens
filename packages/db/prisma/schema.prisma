@@ -72,7 +72,7 @@ model CivicDocument {
   summary          String?
   status           DocumentStatus
   topics           String[]
-  sourceUrl        String
+  sourceUrl        String            @unique
   introducedDate   DateTime
   lastActionDate   DateTime
   createdAt        DateTime          @default(now())
