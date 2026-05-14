@@ -14,6 +14,7 @@ export function getRedisConnection() {
 
 let _congressScraperQueue: Queue | undefined
 let _openStatesScraperQueue: Queue | undefined
+let _boardDocsScraperQueue: Queue | undefined
 let _summarizeQueue: Queue | undefined
 
 export function getCongressScraperQueue(): Queue {
@@ -25,6 +26,13 @@ export function getCongressScraperQueue(): Queue {
 
 export function getOpenStatesScraperQueue(): Queue {
   return (_openStatesScraperQueue ??= new Queue('openstates-scraper', {
+    connection: getRedisConnection(),
+    defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 },
+  }))
+}
+
+export function getBoardDocsScraperQueue(): Queue {
+  return (_boardDocsScraperQueue ??= new Queue('boarddocs-scraper', {
     connection: getRedisConnection(),
     defaultJobOptions: { removeOnComplete: 100, removeOnFail: 500 },
   }))
@@ -45,3 +53,4 @@ export function getSummarizeQueue(): Queue {
 // Convenience re-exports used by the cron registration helpers
 export { getCongressScraperQueue as congressScraperQueue }
 export { getOpenStatesScraperQueue as openStatesScraperQueue }
+export { getBoardDocsScraperQueue as boardDocsScraperQueue }
