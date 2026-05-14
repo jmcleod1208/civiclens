@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "node .cursor/hooks/fix-env-endings.js",
+        "timeout": 5
+      }
+    ]
+  }
+}
