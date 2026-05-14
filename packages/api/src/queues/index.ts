@@ -1,6 +1,18 @@
 import { Queue } from 'bullmq'
 
 export function getRedisConnection() {
+  const url = process.env.REDIS_URL
+  if (url) {
+    // Parse rediss:// or redis:// URL into ioredis connection options
+    const parsed = new URL(url)
+    return {
+      host: parsed.hostname,
+      port: Number(parsed.port) || 6379,
+      username: parsed.username || undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
+    }
+  }
   return {
     host: process.env.REDIS_HOST ?? 'localhost',
     port: Number(process.env.REDIS_PORT ?? 6379),

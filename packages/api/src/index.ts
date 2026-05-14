@@ -1,3 +1,4 @@
+import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -27,7 +28,7 @@ app.use(
       return allowed.includes(origin) ? origin : ''
     },
     allowHeaders: ['Content-Type', 'Authorization'],
-    allowMethods: ['GET', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
     maxAge: 86_400,
   }),
 )
@@ -59,5 +60,14 @@ app.onError((err, c) => {
   console.error('[unhandled error]', err)
   return c.json({ error: 'Internal server error' }, 500)
 })
+
+const port = Number(process.env.PORT ?? 3000)
+
+const server = serve({ fetch: app.fetch, port }, () => {
+  console.log(`CivicLens API listening on http://localhost:${port}`)
+})
+
+// Release the port cleanly when node --watch restarts the process
+process.on('SIGTERM', () => server.close())
 
 export default app
