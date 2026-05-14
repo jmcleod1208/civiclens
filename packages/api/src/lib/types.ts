@@ -20,6 +20,12 @@ export type AppEnv = {
   Variables: {
     /** Null when the request is unauthenticated or the token is invalid. */
     user: AuthUser | null
+    /**
+     * Set by requireSubscription middleware.
+     * True when the user has an active subscription or an active trial.
+     * Undefined on routes that don't use requireSubscription.
+     */
+    hasAccess: boolean | undefined
   }
 }
 

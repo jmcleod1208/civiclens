@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { auth } from './middleware/auth.js'
+import authRoutes from './routes/auth.js'
+import subscriptionRoutes from './routes/subscriptions.js'
 import documents from './routes/documents.js'
 import politicians from './routes/politicians.js'
 import jurisdictions from './routes/jurisdictions.js'
@@ -41,6 +43,8 @@ app.get('/health', c => c.json({ status: 'ok', timestamp: new Date().toISOString
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
+app.route('/api/auth', authRoutes)
+app.route('/api/subscriptions', subscriptionRoutes)
 app.route('/api/documents', documents)
 app.route('/api/politicians', politicians)
 app.route('/api/jurisdictions', jurisdictions)

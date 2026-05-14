@@ -17,6 +17,7 @@
     "@civiclens/db": "workspace:*",
     "@civiclens/shared": "workspace:*",
     "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.105.4",
     "bullmq": "^5.53.0",
     "fast-xml-parser": "^4.5.3",
     "hono": "^4.7.10",
