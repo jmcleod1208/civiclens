@@ -1,1 +1,68 @@
 @import "tailwindcss";
+
+/* ── Google Fonts ──────────────────────────────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap");
+/* Satoshi via Fontshare CDN */
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap");
+
+/* ── Design Tokens ─────────────────────────────────────────────────── */
+@theme {
+  --color-teal-50:  #f0fafa;
+  --color-teal-100: #cceeef;
+  --color-teal-200: #99dcdf;
+  --color-teal-300: #5fc4c9;
+  --color-teal-400: #2faab1;
+  --color-teal-500: #01696f;
+  --color-teal-600: #015a5f;
+  --color-teal-700: #01484d;
+  --color-teal-800: #01373b;
+  --color-teal-900: #002528;
+
+  --color-surface:      #f7f6f2;
+  --color-surface-dark: #111312;
+  --color-card:         #ffffff;
+  --color-card-dark:    #1c1e1d;
+  --color-border:       #e4e2dc;
+  --color-border-dark:  #2a2d2c;
+
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body:    "Satoshi", system-ui, sans-serif;
+
+  --radius-card: 1rem;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  background-color: var(--color-surface);
+  font-family: var(--font-body);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  background-color: var(--color-surface-dark);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-teal-200); border-radius: 3px; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--color-teal-700); }
+
+/* ── Typography helpers ─────────────────────────────────────────────── */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+
+/* ── Paywall blur teaser ─────────────────────────────────────────────── */
+.paywall-blur {
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 70%);
+  mask-image: linear-gradient(to bottom, black 0%, transparent 70%);
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
+}

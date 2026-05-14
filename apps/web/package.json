@@ -11,8 +11,12 @@
   },
   "dependencies": {
     "@civiclens/shared": "workspace:*",
+    "@tanstack/react-query": "^5.100.10",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.14.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.15.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.6",
