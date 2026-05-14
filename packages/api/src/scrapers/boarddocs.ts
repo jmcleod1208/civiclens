@@ -15,10 +15,15 @@ const USER_AGENT =
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * Configuration for a single BoardDocs district. Maps directly to the
+ * SchoolDistrict DB model; use `registerDistrict()` to persist one.
+ */
 export interface DistrictConfig {
   state: string
   districtSlug: string
   jurisdictionName: string
+  jurisdictionFips?: string
 }
 
 /** Meeting summary from BD-GetMeetingsList JSON response. */
@@ -40,7 +45,14 @@ export interface RawAgendaItem {
 export interface ParsedMeeting {
   district: DistrictConfig
   meeting: RawMeeting
+  /** Agenda items extracted from the meeting HTML. */
   items: RawAgendaItem[]
+  /**
+   * Raw HTML of the approved minutes document if BoardDocs exposes one for
+   * this meeting (via BD-GetMinutes). Null when the endpoint returns nothing
+   * useful or errors.
+   */
+  minutesHtml: string | null
 }
 
 export interface NormalizedDocument {
@@ -109,7 +121,7 @@ export function parseDualFormat(body: string, contentType?: string): unknown {
 class BoardDocsSession {
   private cookies = ''
   private readonly referer: string
-  private readonly appPath: string
+  readonly appPath: string
 
   constructor(private readonly district: DistrictConfig) {
     this.appPath = `${district.state}/${district.districtSlug}/Board.nsf`
@@ -127,7 +139,6 @@ class BoardDocsSession {
     if (!res.ok) {
       throw new Error(`Session warmup failed for ${this.appPath}: HTTP ${res.status}`)
     }
-    // Node's fetch consolidates Set-Cookie headers into `set-cookie`.
     const raw = (res.headers as any).getSetCookie?.() ?? [res.headers.get('set-cookie')]
     this.cookies = (raw as string[])
       .filter(Boolean)
@@ -136,9 +147,9 @@ class BoardDocsSession {
   }
 
   /**
-   * POST to a BoardDocs AJAX endpoint with the session cookies and the
-   * `?open&{random}` cache-buster. `formBody` is form-urlencoded data.
-   * Returns the parsed body (JSON, XML, or raw HTML based on contentTypeHint).
+   * POST to a BoardDocs AJAX endpoint. Returns the raw body string plus a
+   * parsed form (JSON/XML) for structured endpoints, or the raw string for
+   * HTML responses.
    */
   async post(
     endpoint: string,
@@ -167,7 +178,6 @@ class BoardDocsSession {
     const contentType = res.headers.get('content-type') ?? ''
     let parsed: unknown = raw
 
-    // HTML responses are returned as-is; JSON/XML go through parseDualFormat.
     const looksHtml =
       contentType.includes('text/html') ||
       (raw.trimStart().startsWith('<') && !raw.trimStart().startsWith('<?xml'))
@@ -175,11 +185,7 @@ class BoardDocsSession {
       try {
         parsed = parseDualFormat(raw, contentType)
       } catch (err) {
-        // Re-throw with the user-friendly hint
-        throw new Error(
-          `${(err as Error).message}. Hint: This BoardDocs instance returns ` +
-            `XML — update the parser to handle both JSON and XML responses.`,
-        )
+        throw new Error(`${(err as Error).message}`)
       }
     }
 
@@ -187,7 +193,7 @@ class BoardDocsSession {
   }
 }
 
-// ─── HTML parsing for agenda items ────────────────────────────────────────────
+// ─── HTML parsing ─────────────────────────────────────────────────────────────
 
 /**
  * Pulls agenda-item rows out of a BD-GetMeeting HTML response.
@@ -196,9 +202,8 @@ class BoardDocsSession {
  */
 function parseAgendaItemsFromHtml(html: string): RawAgendaItem[] {
   const items: RawAgendaItem[] = []
-  // Capture <li ... data-category="..."> ... <a ... unique="{id}" ...>{name}</a> ... </li>
-  const itemRegex =
-    /<li[^>]*\sdata-category="([^"]*)"[^>]*>([\s\S]*?)<\/li>/gi
+
+  const itemRegex = /<li[^>]*\sdata-category="([^"]*)"[^>]*>([\s\S]*?)<\/li>/gi
   for (const liMatch of html.matchAll(itemRegex)) {
     const category = liMatch[1]
     const body = liMatch[2] ?? ''
@@ -210,8 +215,7 @@ function parseAgendaItemsFromHtml(html: string): RawAgendaItem[] {
     items.push({ uniqueId, name, category: category || undefined })
   }
 
-  // Fallback: any `<a unique="..." class="...agenda-item...">` outside the
-  // structured list — newer BoardDocs themes sometimes flatten the markup.
+  // Fallback for newer BoardDocs themes that flatten the markup
   if (!items.length) {
     const flatRegex =
       /<a[^>]*\sunique="([^"]+)"[^>]*\sclass="[^"]*agenda-item[^"]*"[^>]*>([\s\S]*?)<\/a>/gi
@@ -245,21 +249,12 @@ function mapItemType(category: string | undefined): string {
   return 'motion'
 }
 
-function isMinutesMeeting(name: string): boolean {
-  return /minutes?\b/i.test(name)
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-// ─── Meeting list normalization ───────────────────────────────────────────────
+// ─── Meeting list normalization ────────────────────────────────────────────────
 
-/**
- * BD-GetMeetingsList returns an array of meeting objects with snake_case
- * keys: { unique, name, numberdate, start, ... }. Wrap them in a shape the
- * normalize step expects.
- */
 function normalizeMeetingsList(parsed: unknown): RawMeeting[] {
   const arr: unknown[] = Array.isArray(parsed)
     ? parsed
@@ -285,9 +280,6 @@ function normalizeMeetingsList(parsed: unknown): RawMeeting[] {
   return meetings
 }
 
-/**
- * Parses BoardDocs `numberdate` (YYYYMMDD or similar) into a Date.
- */
 function parseMeetingDate(s: string): Date {
   const trimmed = s.trim()
   if (/^\d{8}$/.test(trimmed)) {
@@ -299,12 +291,75 @@ function parseMeetingDate(s: string): Date {
   return isNaN(d.getTime()) ? new Date() : d
 }
 
+// ─── DB helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Registers a district in the SchoolDistrict table (upsert).
+ * Call this once per district to make it eligible for cron scraping.
+ *
+ * @example
+ * await registerDistrict({
+ *   state: 'oh',
+ *   districtSlug: 'Dublin',
+ *   jurisdictionName: 'Dublin City School District, OH',
+ * })
+ */
+export async function registerDistrict(config: DistrictConfig): Promise<void> {
+  const db = new PrismaClient()
+  try {
+    await db.schoolDistrict.upsert({
+      where: { state_boardDocsSlug: { state: config.state, boardDocsSlug: config.districtSlug } },
+      update: { name: config.jurisdictionName, jurisdictionFips: config.jurisdictionFips ?? null },
+      create: {
+        name: config.jurisdictionName,
+        state: config.state,
+        boardDocsSlug: config.districtSlug,
+        jurisdictionFips: config.jurisdictionFips ?? null,
+      },
+    })
+    console.log(`[boarddocs] Registered district ${config.state}/${config.districtSlug}`)
+  } finally {
+    await db.$disconnect()
+  }
+}
+
+/**
+ * Loads all registered districts from the SchoolDistrict table and maps them
+ * to DistrictConfig objects ready for scraping.
+ */
+export async function loadDistricts(): Promise<DistrictConfig[]> {
+  const db = new PrismaClient()
+  try {
+    const rows = await db.schoolDistrict.findMany({ orderBy: { state: 'asc' } })
+    return rows.map(r => ({
+      state: r.state,
+      districtSlug: r.boardDocsSlug,
+      jurisdictionName: r.name,
+      jurisdictionFips: r.jurisdictionFips ?? undefined,
+    }))
+  } finally {
+    await db.$disconnect()
+  }
+}
+
+/** Marks a district's lastScrapedAt timestamp after a successful scrape. */
+async function touchLastScrapedAt(db: PrismaClient, config: DistrictConfig): Promise<void> {
+  try {
+    await db.schoolDistrict.update({
+      where: { state_boardDocsSlug: { state: config.state, boardDocsSlug: config.districtSlug } },
+      data: { lastScrapedAt: new Date() },
+    })
+  } catch {
+    // District may not be registered in DB (e.g. local dev with ad-hoc configs)
+  }
+}
+
 // ─── Structured scraper object ────────────────────────────────────────────────
 
 export const boarddocsScraper = {
   /**
    * Fetches the list of recent meetings for a district.
-   * Performs a session warmup so subsequent AJAX calls aren't blocked.
+   * Performs a session warmup so subsequent AJAX calls are not blocked.
    */
   async fetchMeetings(district: DistrictConfig): Promise<{
     session: BoardDocsSession
@@ -323,7 +378,12 @@ export const boarddocsScraper = {
   },
 
   /**
-   * For each meeting, fetches the meeting HTML and parses out agenda items.
+   * For each meeting:
+   *   1. Fetches the agenda HTML and parses out agenda items.
+   *   2. Attempts to fetch a separate approved-minutes document (BD-GetMinutes).
+   *      If that endpoint does not exist or returns nothing useful the field
+   *      is set to null and a minutes CivicDocument is not created.
+   *
    * Reuses the session from fetchMeetings so cookies stay valid.
    */
   async parse(
@@ -332,59 +392,105 @@ export const boarddocsScraper = {
     meetings: RawMeeting[],
   ): Promise<ParsedMeeting[]> {
     const results: ParsedMeeting[] = []
+
     for (const meeting of meetings) {
+      // ── 1. Agenda ────────────────────────────────────────────────────────
+      let agendaHtml = ''
+      let items: RawAgendaItem[] = []
       try {
         const { raw } = await session.post('BD-GetMeeting', { id: meeting.uniqueId })
+        agendaHtml = raw
+        items = parseAgendaItemsFromHtml(agendaHtml)
         await delay(RATE_LIMIT_MS)
-        const items = typeof raw === 'string' ? parseAgendaItemsFromHtml(raw) : []
-        results.push({ district, meeting, items })
       } catch (err) {
         console.warn(
           `[boarddocs:${district.state}/${district.districtSlug}] ` +
-            `Meeting ${meeting.uniqueId} fetch failed: ${(err as Error).message}`,
+            `Agenda fetch for ${meeting.uniqueId} failed: ${(err as Error).message}`,
         )
-        results.push({ district, meeting, items: [] })
       }
+
+      // ── 2. Minutes (best-effort) ──────────────────────────────────────────
+      let minutesHtml: string | null = null
+      try {
+        const { raw } = await session.post('BD-GetMinutes', { id: meeting.uniqueId })
+        await delay(RATE_LIMIT_MS)
+        // Accept the minutes response only when it is substantive and differs
+        // from the agenda (some instances echo the same page for unknown IDs).
+        const trimmed = raw.trim()
+        if (trimmed.length > 200 && trimmed !== agendaHtml.trim()) {
+          minutesHtml = raw
+        }
+      } catch {
+        // Endpoint does not exist for this district — silently skip.
+      }
+
+      results.push({ district, meeting, items, minutesHtml })
     }
+
     return results
   },
 
   /**
-   * One CivicDocument per meeting (type=agenda or minutes) plus one
-   * CivicDocument per agenda item (type from item.category).
+   * Produces CivicDocument records from parsed meetings:
+   *   • One "agenda" document per meeting (fullText = joined item titles).
+   *   • One "minutes" document per meeting when minutes HTML was fetched.
+   *   • One document per individual agenda item.
    */
   normalize(parsed: ParsedMeeting[]): NormalizedDocument[] {
     const docs: NormalizedDocument[] = []
-    for (const { district, meeting, items } of parsed) {
-      const { state, districtSlug, jurisdictionName } = district
+
+    for (const { district, meeting, items, minutesHtml } of parsed) {
+      const { state, districtSlug, jurisdictionName, jurisdictionFips } = district
       const meetingDate = parseMeetingDate(meeting.start || meeting.numberdate || '')
       const meetingUrl = `${BASE_URL}/${state}/${districtSlug}/Board.nsf/goto?open&id=${meeting.uniqueId}`
 
+      // ── Meeting-level agenda document ────────────────────────────────────
       docs.push({
-        sourceUrl: meetingUrl,
-        type: isMinutesMeeting(meeting.name) ? 'minutes' : 'agenda',
-        level: 'school_board' as const,
+        sourceUrl: `${meetingUrl}&doc=agenda`,
+        type: 'agenda',
+        level: 'school_board',
         jurisdiction: jurisdictionName,
-        jurisdictionFips: null,
+        jurisdictionFips: jurisdictionFips ?? null,
         title: meeting.name,
-        fullText: items.map(i => i.name).join('\n'),
+        fullText: items.length
+          ? items.map(i => [i.category, i.name].filter(Boolean).join(' — ')).join('\n')
+          : meeting.name,
         summary: null,
         status: 'introduced',
-        topics: [],
+        topics: [...new Set(items.map(i => i.category).filter((c): c is string => Boolean(c)))],
         introducedDate: meetingDate,
         lastActionDate: meetingDate,
       })
 
+      // ── Meeting-level minutes document (when available) ──────────────────
+      if (minutesHtml) {
+        docs.push({
+          sourceUrl: `${meetingUrl}&doc=minutes`,
+          type: 'minutes',
+          level: 'school_board',
+          jurisdiction: jurisdictionName,
+          jurisdictionFips: jurisdictionFips ?? null,
+          title: `Minutes: ${meeting.name}`,
+          fullText: htmlToText(minutesHtml),
+          summary: null,
+          status: 'passed',
+          topics: [],
+          introducedDate: meetingDate,
+          lastActionDate: meetingDate,
+        })
+      }
+
+      // ── Individual agenda item documents ─────────────────────────────────
       for (const item of items) {
         const itemUrl = `${BASE_URL}/${state}/${districtSlug}/Board.nsf/goto?open&id=${item.uniqueId}`
         docs.push({
           sourceUrl: itemUrl,
           type: mapItemType(item.category),
-          level: 'school_board' as const,
+          level: 'school_board',
           jurisdiction: jurisdictionName,
-          jurisdictionFips: null,
+          jurisdictionFips: jurisdictionFips ?? null,
           title: item.name,
-          fullText: item.description ?? '',
+          fullText: item.description ?? item.name,
           summary: null,
           status: 'introduced',
           topics: item.category ? [item.category] : [],
@@ -393,14 +499,14 @@ export const boarddocsScraper = {
         })
       }
     }
+
     return docs
   },
 
-  async upsertAll(docs: NormalizedDocument[]): Promise<{
-    created: number
-    updated: number
-    errors: number
-  }> {
+  async upsertAll(
+    docs: NormalizedDocument[],
+    districtConfig?: DistrictConfig,
+  ): Promise<{ created: number; updated: number; errors: number }> {
     const db = new PrismaClient()
     let created = 0
     let updated = 0
@@ -414,7 +520,10 @@ export const boarddocsScraper = {
             select: { id: true },
           })
           if (existing) {
-            await db.civicDocument.update({ where: { id: existing.id }, data: doc as any })
+            await db.civicDocument.update({
+              where: { id: existing.id },
+              data: doc as any,
+            })
             updated++
           } else {
             const newDoc = await db.civicDocument.create({
@@ -422,13 +531,20 @@ export const boarddocsScraper = {
               select: { id: true },
             })
             created++
-            try { await getSummarizeQueue().add('summarize', { documentId: newDoc.id }) }
-            catch { /* Redis may not be running */ }
+            try {
+              await getSummarizeQueue().add('summarize', { documentId: newDoc.id })
+            } catch {
+              // Redis may not be running in dev
+            }
           }
         } catch (err) {
           errors++
           console.error(`[boarddocs] upsertAll: error on ${doc.sourceUrl}:`, err)
         }
+      }
+
+      if (districtConfig) {
+        await touchLastScrapedAt(db, districtConfig)
       }
     } finally {
       await db.$disconnect()
@@ -441,7 +557,7 @@ export const boarddocsScraper = {
   },
 }
 
-// ─── Full scrape for one district (used by the cron worker) ──────────────────
+// ─── Full scrape for one district ─────────────────────────────────────────────
 
 export async function scrapeDistrict(district: DistrictConfig): Promise<ScrapeResult> {
   const key = `${district.state}/${district.districtSlug}`
@@ -450,16 +566,21 @@ export async function scrapeDistrict(district: DistrictConfig): Promise<ScrapeRe
   const { session, meetings } = await boarddocsScraper.fetchMeetings(district)
   const parsed = await boarddocsScraper.parse(district, session, meetings)
   const normalized = boarddocsScraper.normalize(parsed)
-  const result = await boarddocsScraper.upsertAll(normalized)
+  const result = await boarddocsScraper.upsertAll(normalized, district)
 
   console.log(
-    `[boarddocs:${key}] Scrape complete — created=${result.created} updated=${result.updated} errors=${result.errors}`,
+    `[boarddocs:${key}] Scrape complete — ` +
+      `created=${result.created} updated=${result.updated} errors=${result.errors}`,
   )
   return { district: key, ...result }
 }
 
-// ─── BullMQ cron job ──────────────────────────────────────────────────────────
+// ─── BullMQ cron & worker ─────────────────────────────────────────────────────
 
+/**
+ * Registers a daily cron job for each district in `districts`.
+ * Normally you call `registerAllDistrictCronJobs` instead, which loads from DB.
+ */
 export async function registerBoardDocsCronJobs(
   queue: Queue,
   districts: DistrictConfig[],
@@ -475,12 +596,27 @@ export async function registerBoardDocsCronJobs(
   }
 }
 
+/**
+ * Loads all districts from the SchoolDistrict table and registers a daily
+ * cron job for each one. Call this at server startup.
+ */
+export async function registerAllDistrictCronJobs(queue: Queue): Promise<void> {
+  const districts = await loadDistricts()
+  if (districts.length === 0) {
+    console.warn('[boarddocs] No districts found in DB. Register districts with registerDistrict().')
+    return
+  }
+  await registerBoardDocsCronJobs(queue, districts)
+}
+
 export function createBoardDocsScraperWorker(): Worker {
   return new Worker(
     'boarddocs-scraper',
     async job => {
       const district = job.data as DistrictConfig
-      console.log(`[boarddocs] Worker received job ${district.state}/${district.districtSlug} id=${job.id}`)
+      console.log(
+        `[boarddocs] Worker received job ${district.state}/${district.districtSlug} id=${job.id}`,
+      )
       return scrapeDistrict(district)
     },
     { connection: getRedisConnection(), concurrency: 1 },

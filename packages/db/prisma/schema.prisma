@@ -158,3 +158,17 @@ model Notification {
   @@index([userId, read])
   @@index([documentId])
 }
+
+model SchoolDistrict {
+  id               String    @id @default(cuid())
+  name             String
+  state            String
+  boardDocsSlug    String
+  jurisdictionFips String?
+  lastScrapedAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([state, boardDocsSlug])
+  @@index([state])
+}
