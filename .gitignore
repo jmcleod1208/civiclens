@@ -18,8 +18,8 @@ out/
 .env.local
 .env.*.local
 
-# Prisma
-prisma/migrations/
+# Prisma — generated client only, NOT migrations (those are source-controlled)
+packages/db/node_modules/.prisma/
 
 # Editor
 .vscode/
