@@ -26,6 +26,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "f52063e0-35bf-422c-9171-2b13fc357729"
+      }
+    },
+    "owner": "spooni08"
   }
 }
