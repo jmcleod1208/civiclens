@@ -1,9 +1,3 @@
-import { config } from 'dotenv'
-import { resolve } from 'path'
-
-// Load env from packages/db/.env (one level up from packages/api)
-config({ path: resolve(import.meta.dirname, '../../db/.env') })
-
 import { congressScraper } from './scrapers/congress.js'
 
 async function main() {

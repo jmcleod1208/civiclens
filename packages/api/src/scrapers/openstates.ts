@@ -1,6 +1,6 @@
 import { PrismaClient } from '@civiclens/db'
 import { Queue, Worker } from 'bullmq'
-import { getRedisConnection, summarizeQueue } from '../queues/index.js'
+import { getRedisConnection, getSummarizeQueue } from '../queues/index.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -344,7 +344,7 @@ export async function scrapeStateBills(state: string): Promise<ScrapeResult> {
           }
 
           if (isNew) {
-            await summarizeQueue.add('summarize', { documentId })
+            await getSummarizeQueue().add('summarize', { documentId })
           }
 
           // Upsert sponsors → DocumentPolitician

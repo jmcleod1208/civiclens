@@ -8,7 +8,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run dist/index.js",
     "type-check": "tsc --noEmit",
-    "test:congress": "npx tsx src/test-congress.ts"
+    "test:congress": "node --env-file=../db/.env --import tsx/esm src/test-congress.ts"
   },
   "dependencies": {
     "@civiclens/db": "workspace:*",

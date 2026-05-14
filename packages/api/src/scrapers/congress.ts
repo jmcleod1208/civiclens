@@ -1,6 +1,6 @@
 import { PrismaClient } from '@civiclens/db'
 import { Queue, Worker } from 'bullmq'
-import { getRedisConnection, summarizeQueue } from '../queues/index.js'
+import { getRedisConnection, getSummarizeQueue } from '../queues/index.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,7 +134,8 @@ function canonicalSourceUrl(apiUrl: string): string {
 
 async function fetchBillText(textVersionsUrl: string, apiKey: string): Promise<string> {
   try {
-    const url = `${textVersionsUrl}?format=json&api_key=${apiKey}`
+    const base = textVersionsUrl.split('?')[0]
+    const url = `${base}?format=json&api_key=${apiKey}`
     const data = await fetchJson<TextVersionsResponse>(url)
     await delay(RATE_LIMIT_MS)
 
@@ -264,7 +265,7 @@ export const congressScraper = {
             })
             created++
             try {
-              await summarizeQueue.add('summarize', { documentId: newDoc.id })
+              await getSummarizeQueue().add('summarize', { documentId: newDoc.id })
             } catch {
               // Redis may not be running in test environments — non-fatal
             }
