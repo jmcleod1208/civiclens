@@ -7,7 +7,8 @@
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run dist/index.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test:congress": "npx tsx src/test-congress.ts"
   },
   "dependencies": {
     "@civiclens/db": "workspace:*",
@@ -17,6 +18,8 @@
   },
   "devDependencies": {
     "bun-types": "latest",
+    "dotenv": "^16.5.0",
+    "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }
 }
