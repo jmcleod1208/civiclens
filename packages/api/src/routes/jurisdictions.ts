@@ -5,177 +5,177 @@ const jurisdictions = new Hono<AppEnv>()
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface JurisdictionResult {
+export interface JurisdictionResult {
+  normalized_address: string | null
   federal_district: string | null   // e.g. "OH-12"
   state: string | null              // e.g. "OH"
-  state_district: string | null     // e.g. "OH-SD-7" (senate) or "OH-HD-22" (house)
-  county: string | null             // e.g. "Franklin County"
-  city: string | null               // e.g. "Dublin"
-  school_district: string | null    // e.g. "Dublin City School District"
+  state_fips: string | null         // e.g. "39"
+  state_district_upper: string | null  // state senate district
+  state_district_lower: string | null  // state house district
+  county: string | null
+  county_fips: string | null
+  city: string | null
+  school_district: string | null
+  school_district_fips: string | null
 }
 
-interface CivicApiResponse {
-  normalizedInput?: {
-    city?: string
-    state?: string
-    zip?: string
-    line1?: string
-  }
-  divisions?: Record<string, { name?: string; officeIndices?: number[] }>
-  error?: { code: number; message: string }
+// State FIPS → abbreviation map
+const FIPS_TO_STATE: Record<string, string> = {
+  '01':'AL','02':'AK','04':'AZ','05':'AR','06':'CA','08':'CO','09':'CT','10':'DE',
+  '11':'DC','12':'FL','13':'GA','15':'HI','16':'ID','17':'IL','18':'IN','19':'IA',
+  '20':'KS','21':'KY','22':'LA','23':'ME','24':'MD','25':'MA','26':'MI','27':'MN',
+  '28':'MS','29':'MO','30':'MT','31':'NE','32':'NV','33':'NH','34':'NJ','35':'NM',
+  '36':'NY','37':'NC','38':'ND','39':'OH','40':'OK','41':'OR','42':'PA','44':'RI',
+  '45':'SC','46':'SD','47':'TN','48':'TX','49':'UT','50':'VT','51':'VA','53':'WA',
+  '54':'WV','55':'WI','56':'WY','72':'PR',
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Census Geocoder ──────────────────────────────────────────────────────────
 
 /**
- * Converts an OCD slug like "franklin_county" to a human-readable string
- * "Franklin County".
+ * Calls the US Census Bureau Geocoder (free, no API key required).
+ * Accepts either a full single-line address or structured components.
+ * Returns FIPS codes and geography names for all matched political layers.
  */
-function formatOcdSlug(slug: string): string {
-  return slug
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, ch => ch.toUpperCase())
-}
-
-/**
- * Parses the Google Civic Information API `divisions` map (keyed by OCD IDs)
- * and extracts the geographic levels CivicLens cares about.
- *
- * Example OCD IDs:
- *   ocd-division/country:us/state:oh
- *   ocd-division/country:us/state:oh/cd:12
- *   ocd-division/country:us/state:oh/sldu:7
- *   ocd-division/country:us/state:oh/sldl:22
- *   ocd-division/country:us/state:oh/county:franklin
- *   ocd-division/country:us/state:oh/place:dublin
- *   ocd-division/country:us/state:oh/unifiedschooldistrict:dublin_city
- */
-function parseDivisions(
-  divisions: CivicApiResponse['divisions'],
-): JurisdictionResult {
-  const result: JurisdictionResult = {
+async function geocodeWithCensus(address: string): Promise<JurisdictionResult> {
+  const empty: JurisdictionResult = {
+    normalized_address: null,
     federal_district: null,
     state: null,
-    state_district: null,
+    state_fips: null,
+    state_district_upper: null,
+    state_district_lower: null,
     county: null,
+    county_fips: null,
     city: null,
     school_district: null,
+    school_district_fips: null,
   }
 
-  if (!divisions) return result
+  const url = new URL('https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress')
+  url.searchParams.set('address', address)
+  url.searchParams.set('benchmark', 'Public_AR_Current')
+  url.searchParams.set('vintage', 'Current_Current')
+  url.searchParams.set('layers', 'all')
+  url.searchParams.set('format', 'json')
 
-  // First pass: extract state abbreviation (needed to build other IDs)
-  for (const ocdId of Object.keys(divisions)) {
-    // Matches ".../state:oh" at the end of the ID
-    const stateOnly = ocdId.match(/\/state:([a-z]{2})$/)
-    if (stateOnly) {
-      result.state = stateOnly[1].toUpperCase()
-      break
-    }
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+  })
+
+  if (!res.ok) {
+    throw new Error(`Census Geocoder returned HTTP ${res.status}`)
   }
 
-  const state = result.state ?? ''
+  const body = await res.json() as any
+  const match = body?.result?.addressMatches?.[0]
+  if (!match) return empty
 
-  for (const [ocdId, division] of Object.entries(divisions)) {
-    // Federal congressional district: .../state:xx/cd:N
-    const cdMatch = ocdId.match(/\/cd:(\d+)/)
-    if (cdMatch) {
-      result.federal_district = `${state}-${cdMatch[1]}`
-      continue
-    }
+  const geo = match.geographies ?? {}
+  const addr = match.matchedAddress as string | undefined
 
-    // State senate district: .../sldu:N
-    const slduMatch = ocdId.match(/\/sldu:([^/]+)/)
-    if (slduMatch) {
-      result.state_district = `${state}-SD-${slduMatch[1]}`
-      continue
-    }
-
-    // State house district: .../sldl:N (only set if senate not already set)
-    const sldlMatch = ocdId.match(/\/sldl:([^/]+)/)
-    if (sldlMatch && !result.state_district) {
-      result.state_district = `${state}-HD-${sldlMatch[1]}`
-      continue
-    }
-
-    // County: .../county:name
-    const countyMatch = ocdId.match(/\/county:([^/]+)/)
-    if (countyMatch) {
-      const name = division.name ?? formatOcdSlug(countyMatch[1])
-      result.county = name.includes('County') ? name : `${name} County`
-      continue
-    }
-
-    // City / municipality: .../place:name
-    const placeMatch = ocdId.match(/\/place:([^/]+)/)
-    if (placeMatch) {
-      result.city = division.name ?? formatOcdSlug(placeMatch[1])
-      continue
-    }
-
-    // School districts: unified / elementary / secondary
-    const schoolMatch = ocdId.match(
-      /\/(unified|elementary|secondary)schooldistrict:([^/]+)/,
-    )
-    if (schoolMatch) {
-      result.school_district = division.name ?? formatOcdSlug(schoolMatch[2])
-      continue
-    }
+  // Layer names are year-prefixed (e.g. "119th Congressional Districts",
+  // "2024 State Legislative Districts - Upper"). Find them by keyword match.
+  function findLayer(keyword: string): any[] {
+    const key = Object.keys(geo).find(k => k.toLowerCase().includes(keyword.toLowerCase()))
+    return key ? (geo[key] ?? []) : []
   }
 
-  return result
+  // ── State ──────────────────────────────────────────────────────────────────
+  const stateGeo = (geo['States'] ?? [])[0]
+  const stateFips = stateGeo?.GEOID ?? null
+  const stateAbbr = stateFips ? (FIPS_TO_STATE[stateFips] ?? null) : null
+
+  // ── Congressional district ─────────────────────────────────────────────────
+  const cdGeo = findLayer('congressional')[0]
+  const cdNum = cdGeo?.BASENAME ?? null
+  const federalDistrict = stateAbbr && cdNum ? `${stateAbbr}-${cdNum}` : null
+
+  // ── State legislative districts ────────────────────────────────────────────
+  const upperGeo = findLayer('upper')[0]
+  const lowerGeo = findLayer('lower')[0]
+  const stateUpper = upperGeo?.BASENAME ?? null
+  const stateLower = lowerGeo?.BASENAME ?? null
+
+  // ── County ─────────────────────────────────────────────────────────────────
+  const countyGeo = (geo['Counties'] ?? [])[0]
+  const countyName = countyGeo?.NAME ?? null
+  const countyFips = countyGeo?.GEOID ?? null
+
+  // ── City / place ───────────────────────────────────────────────────────────
+  const placeGeo =
+    (geo['Incorporated Places'] ?? [])[0] ??
+    findLayer('designated places')[0]
+  const cityName = placeGeo?.NAME ?? null
+
+  // ── School district ────────────────────────────────────────────────────────
+  const schoolGeo =
+    (geo['Unified School Districts'] ?? [])[0] ??
+    findLayer('elementary school')[0] ??
+    findLayer('secondary school')[0]
+  const schoolName = schoolGeo?.NAME ?? null
+  const schoolFips = schoolGeo?.GEOID ?? null
+
+  return {
+    normalized_address: addr ?? null,
+    federal_district: federalDistrict,
+    state: stateAbbr,
+    state_fips: stateFips,
+    state_district_upper: stateUpper ? `${stateAbbr}-SD-${stateUpper}` : null,
+    state_district_lower: stateLower ? `${stateAbbr}-HD-${stateLower}` : null,
+    county: countyName,
+    county_fips: countyFips,
+    city: cityName,
+    school_district: schoolName,
+    school_district_fips: schoolFips,
+  }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 /**
- * GET /api/jurisdictions/lookup?address=<street+city+state>
+ * GET /api/jurisdictions/lookup?address=<street+city+state+zip>
  *
- * Calls the Google Civic Information API and returns a structured breakdown
- * of the jurisdictions that govern the given address.
+ * Geocodes the address via the US Census Bureau Geocoder (free, no API key)
+ * and returns the political jurisdictions that govern it.
  *
  * @example
- * GET /api/jurisdictions/lookup?address=1600+Pennsylvania+Ave+NW+Washington+DC
+ * GET /api/jurisdictions/lookup?address=5200+Emerald+Pkwy+Dublin+OH+43017
+ *
+ * Response:
+ * {
+ *   "normalized_address": "5200 EMERALD PKWY, DUBLIN, OH, 43017",
+ *   "federal_district": "OH-12",
+ *   "state": "OH",
+ *   "state_fips": "39",
+ *   "state_district_upper": "OH-SD-16",
+ *   "state_district_lower": "OH-HD-21",
+ *   "county": "Franklin County",
+ *   "county_fips": "39049",
+ *   "city": "Dublin city",
+ *   "school_district": "Dublin City School District",
+ *   "school_district_fips": "3904842"
+ * }
  */
 jurisdictions.get('/lookup', async c => {
   const address = c.req.query('address')?.trim()
 
-  if (!address) {
-    return c.json({ error: 'address query parameter is required' }, 400)
-  }
-
-  const apiKey = process.env.GOOGLE_CIVIC_API_KEY
-  if (!apiKey) {
-    return c.json({ error: 'GOOGLE_CIVIC_API_KEY is not configured' }, 503)
+  if (!address || address.length < 5) {
+    return c.json({ error: 'address query parameter is required (e.g. ?address=123+Main+St+Columbus+OH)' }, 400)
   }
 
   try {
-    const url = new URL('https://www.googleapis.com/civicinfo/v2/representatives')
-    url.searchParams.set('address', address)
-    url.searchParams.set('key', apiKey)
-    // We only need the divisions — skip office/official data to keep response small
-    url.searchParams.set('includeOffices', 'false')
+    const result = await geocodeWithCensus(address)
 
-    const res = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-    })
-
-    const body: CivicApiResponse = await res.json()
-
-    if (!res.ok || body.error) {
-      const msg = body.error?.message ?? `Civic API returned HTTP ${res.status}`
-      return c.json({ error: msg }, res.ok ? 500 : res.status)
+    if (!result.state && !result.county) {
+      return c.json({ error: 'Address not found. Try including city and state (e.g. 123 Main St, Dublin, OH).' }, 404)
     }
 
-    const jurisdictionResult = parseDivisions(body.divisions)
-
-    return c.json({
-      normalized_address: body.normalizedInput ?? null,
-      ...jurisdictionResult,
-    })
+    return c.json(result)
   } catch (err) {
     console.error('[GET /api/jurisdictions/lookup]', err)
-    return c.json({ error: 'Failed to look up jurisdiction' }, 500)
+    return c.json({ error: 'Failed to geocode address' }, 500)
   }
 })
 

@@ -145,7 +145,7 @@ export async function extractPdfContent(pdfUrl: string, documentId: string): Pro
 
     // ── 4. Extract content with Gemini 2.0 Flash ────────────────────────────
     console.log(`[process-pdf] Calling Gemini 2.0 Flash for extraction…`)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent([
       { fileData: { mimeType: geminiFile.mimeType, fileUri: geminiFile.uri } },
       { text: EXTRACTION_PROMPT },
