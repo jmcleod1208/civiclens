@@ -22,9 +22,75 @@ const STATE_FIPS: Record<string, string> = {
   WI: '55', WY: '56',
 }
 
+/**
+ * OpenStates v3 requires either a full state name or an OCD jurisdiction ID
+ * in the `jurisdiction` query param — two-letter abbreviations return 422.
+ * We accept either input and convert as needed.
+ */
+const STATE_ABBR_TO_OCD: Record<string, string> = {
+  AL: 'ocd-jurisdiction/country:us/state:al/government',
+  AK: 'ocd-jurisdiction/country:us/state:ak/government',
+  AZ: 'ocd-jurisdiction/country:us/state:az/government',
+  AR: 'ocd-jurisdiction/country:us/state:ar/government',
+  CA: 'ocd-jurisdiction/country:us/state:ca/government',
+  CO: 'ocd-jurisdiction/country:us/state:co/government',
+  CT: 'ocd-jurisdiction/country:us/state:ct/government',
+  DE: 'ocd-jurisdiction/country:us/state:de/government',
+  DC: 'ocd-jurisdiction/country:us/district:dc/government',
+  FL: 'ocd-jurisdiction/country:us/state:fl/government',
+  GA: 'ocd-jurisdiction/country:us/state:ga/government',
+  HI: 'ocd-jurisdiction/country:us/state:hi/government',
+  ID: 'ocd-jurisdiction/country:us/state:id/government',
+  IL: 'ocd-jurisdiction/country:us/state:il/government',
+  IN: 'ocd-jurisdiction/country:us/state:in/government',
+  IA: 'ocd-jurisdiction/country:us/state:ia/government',
+  KS: 'ocd-jurisdiction/country:us/state:ks/government',
+  KY: 'ocd-jurisdiction/country:us/state:ky/government',
+  LA: 'ocd-jurisdiction/country:us/state:la/government',
+  ME: 'ocd-jurisdiction/country:us/state:me/government',
+  MD: 'ocd-jurisdiction/country:us/state:md/government',
+  MA: 'ocd-jurisdiction/country:us/state:ma/government',
+  MI: 'ocd-jurisdiction/country:us/state:mi/government',
+  MN: 'ocd-jurisdiction/country:us/state:mn/government',
+  MS: 'ocd-jurisdiction/country:us/state:ms/government',
+  MO: 'ocd-jurisdiction/country:us/state:mo/government',
+  MT: 'ocd-jurisdiction/country:us/state:mt/government',
+  NE: 'ocd-jurisdiction/country:us/state:ne/government',
+  NV: 'ocd-jurisdiction/country:us/state:nv/government',
+  NH: 'ocd-jurisdiction/country:us/state:nh/government',
+  NJ: 'ocd-jurisdiction/country:us/state:nj/government',
+  NM: 'ocd-jurisdiction/country:us/state:nm/government',
+  NY: 'ocd-jurisdiction/country:us/state:ny/government',
+  NC: 'ocd-jurisdiction/country:us/state:nc/government',
+  ND: 'ocd-jurisdiction/country:us/state:nd/government',
+  OH: 'ocd-jurisdiction/country:us/state:oh/government',
+  OK: 'ocd-jurisdiction/country:us/state:ok/government',
+  OR: 'ocd-jurisdiction/country:us/state:or/government',
+  PA: 'ocd-jurisdiction/country:us/state:pa/government',
+  RI: 'ocd-jurisdiction/country:us/state:ri/government',
+  SC: 'ocd-jurisdiction/country:us/state:sc/government',
+  SD: 'ocd-jurisdiction/country:us/state:sd/government',
+  TN: 'ocd-jurisdiction/country:us/state:tn/government',
+  TX: 'ocd-jurisdiction/country:us/state:tx/government',
+  UT: 'ocd-jurisdiction/country:us/state:ut/government',
+  VT: 'ocd-jurisdiction/country:us/state:vt/government',
+  VA: 'ocd-jurisdiction/country:us/state:va/government',
+  WA: 'ocd-jurisdiction/country:us/state:wa/government',
+  WV: 'ocd-jurisdiction/country:us/state:wv/government',
+  WI: 'ocd-jurisdiction/country:us/state:wi/government',
+  WY: 'ocd-jurisdiction/country:us/state:wy/government',
+}
+
+function resolveJurisdiction(input: string): string {
+  const upper = input.toUpperCase()
+  if (STATE_ABBR_TO_OCD[upper]) return STATE_ABBR_TO_OCD[upper]
+  // Pass through OCD IDs and full state names unchanged
+  return input.toLowerCase()
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface OpenStatesPerson {
+export interface OpenStatesPerson {
   id: string
   name: string
   party?: string
@@ -36,7 +102,7 @@ interface OpenStatesPerson {
   }
 }
 
-interface OpenStatesSponsorship {
+export interface OpenStatesSponsorship {
   name: string
   classification: string // "primary" | "cosponsor"
   entity_type: string
@@ -44,39 +110,34 @@ interface OpenStatesSponsorship {
   person: OpenStatesPerson | null
 }
 
-interface OpenStatesVoteCount {
-  option: string
-  value: number
-}
-
-interface OpenStatesVoteRecord {
+export interface OpenStatesVoteRecord {
   option: string // "yes" | "no" | "abstain" | "other" | "absent" | "not voting"
   voter: OpenStatesPerson | null
 }
 
-interface OpenStatesVoteEvent {
+export interface OpenStatesVoteEvent {
   id: string
   motion_text: string
   start_date: string | null
-  result: string // "pass" | "fail"
+  result: string
   votes: OpenStatesVoteRecord[]
-  counts: OpenStatesVoteCount[]
+  counts: Array<{ option: string; value: number }>
 }
 
-interface OpenStatesVersion {
+export interface OpenStatesVersion {
   note: string
   date: string
   links: Array<{ url: string; media_type: string }>
 }
 
-interface OpenStatesAction {
+export interface OpenStatesAction {
   organization: { classification: string } | null
   description: string
   date: string
   classification: string[]
 }
 
-interface OpenStatesBill {
+export interface OpenStatesBill {
   id: string
   session: string
   jurisdiction: { id: string; name: string; classification: string }
@@ -103,6 +164,51 @@ interface BillsResponse {
   }
 }
 
+export interface ParsedBill {
+  raw: OpenStatesBill
+  fullText: string
+}
+
+export interface NormalizedPolitician {
+  openStatesId: string
+  name: string
+  title: string
+  party: string
+  district: string
+  jurisdiction: string
+}
+
+export interface NormalizedRole {
+  openStatesId: string
+  role: string
+}
+
+export interface NormalizedStateBill {
+  document: {
+    sourceUrl: string
+    type: string
+    level: 'state'
+    jurisdiction: string
+    jurisdictionFips: string | null
+    title: string
+    fullText: string
+    summary: null
+    status: string
+    topics: string[]
+    introducedDate: Date
+    lastActionDate: Date
+  }
+  politicians: NormalizedPolitician[]
+  roles: NormalizedRole[]
+}
+
+export interface ScrapeResult {
+  state: string
+  created: number
+  updated: number
+  errors: number
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function delay(ms: number): Promise<void> {
@@ -115,9 +221,6 @@ async function fetchJson<T>(url: string, apiKey: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
-/**
- * Maps an OpenStates bill classification array to our DocumentType enum value.
- */
 function mapDocumentType(classification: string[]): string {
   const cls = classification.map(c => c.toLowerCase())
   if (
@@ -131,10 +234,6 @@ function mapDocumentType(classification: string[]): string {
   return 'bill'
 }
 
-/**
- * Derives DocumentStatus by walking actions newest-first and matching
- * OpenStates action classification tags.
- */
 function mapStatus(actions: OpenStatesAction[]): string {
   for (let i = actions.length - 1; i >= 0; i--) {
     const cls = actions[i]!.classification
@@ -157,14 +256,10 @@ function mapVoteRole(option: string): string | null {
     case 'yes': return 'voted_yes'
     case 'no': return 'voted_no'
     case 'abstain': return 'voted_abstain'
-    default: return null // ignore "other", "absent", "not voting"
+    default: return null
   }
 }
 
-/**
- * Fetches the plain-text content of the most recent HTML bill text version.
- * Returns an empty string on any failure or timeout.
- */
 async function fetchBillText(versions: OpenStatesVersion[]): Promise<string> {
   for (const version of [...versions].reverse()) {
     const htmlLink = version.links.find(l => l.media_type === 'text/html')
@@ -188,242 +283,301 @@ async function fetchBillText(versions: OpenStatesVersion[]): Promise<string> {
   return ''
 }
 
-// ─── Politician upsert ────────────────────────────────────────────────────────
+function buildPolitician(
+  person: OpenStatesPerson,
+  jurisdiction: string,
+): NormalizedPolitician {
+  const role = person.current_role
+  return {
+    openStatesId: person.id,
+    name: person.name,
+    title: role?.title ?? (role?.org_classification === 'upper' ? 'Senator' : 'Representative'),
+    party: person.party ?? '',
+    district: role?.district ?? '',
+    jurisdiction,
+  }
+}
+
+function requireApiKey(): string {
+  const key = process.env.OPENSTATES_API_KEY
+  if (!key) throw new Error('OPENSTATES_API_KEY env var is not set')
+  return key
+}
+
+// ─── DB upsert helper for politicians ─────────────────────────────────────────
 
 /**
- * Finds or creates a Politician record keyed by their OpenStates person ID.
- * Results are cached in-memory for the duration of a single scrape run to
- * avoid repeated DB round-trips for the same legislator across many bills.
+ * Finds or creates a Politician keyed by their OpenStates person ID.
+ * Cache lives for one upsertAll call so repeated lookups within a single
+ * scrape don't hit the DB more than necessary.
  */
 async function upsertPolitician(
   db: PrismaClient,
-  person: OpenStatesPerson,
-  jurisdiction: string,
+  p: NormalizedPolitician,
   cache: Map<string, string>,
 ): Promise<string> {
-  const cached = cache.get(person.id)
+  const cached = cache.get(p.openStatesId)
   if (cached) return cached
 
-  // Query by OpenStates person ID stored in the JSON sourceIds field
   const existing = await db.politician.findFirst({
-    where: { sourceIds: { path: ['openStatesId'], equals: person.id } },
+    where: { sourceIds: { path: ['openStatesId'], equals: p.openStatesId } },
     select: { id: true },
   })
 
   if (existing) {
-    cache.set(person.id, existing.id)
+    cache.set(p.openStatesId, existing.id)
     return existing.id
   }
 
-  const role = person.current_role
   const created = await db.politician.create({
     data: {
-      name: person.name,
-      title: role?.title ?? (role?.org_classification === 'upper' ? 'Senator' : 'Representative'),
-      party: person.party ?? '',
-      district: role?.district ?? '',
+      name: p.name,
+      title: p.title,
+      party: p.party,
+      district: p.district,
       level: 'state' as any,
-      jurisdiction,
-      sourceIds: { openStatesId: person.id },
+      jurisdiction: p.jurisdiction,
+      sourceIds: { openStatesId: p.openStatesId },
     },
     select: { id: true },
   })
 
-  cache.set(person.id, created.id)
+  cache.set(p.openStatesId, created.id)
   return created.id
 }
 
-// ─── Main scraper ─────────────────────────────────────────────────────────────
+// ─── Structured scraper object ────────────────────────────────────────────────
 
-export interface ScrapeResult {
-  state: string
-  created: number
-  updated: number
-  errors: number
-}
+export const openstatesScraper = {
+  /**
+   * Fetches one page of bills for a given state.
+   * Includes sponsorships, votes, versions, and actions inline.
+   */
+  async fetch(state: string, page = 1, perPage = PAGE_SIZE): Promise<OpenStatesBill[]> {
+    const apiKey = requireApiKey()
+    const url = new URL(`${BASE_URL}/bills`)
+    url.searchParams.set('jurisdiction', resolveJurisdiction(state))
+    // OpenStates expects repeated include= params, not comma-separated
+    for (const inc of ['sponsorships', 'votes', 'versions', 'actions']) {
+      url.searchParams.append('include', inc)
+    }
+    url.searchParams.set('page', String(page))
+    url.searchParams.set('per_page', String(perPage))
 
-export async function scrapeStateBills(state: string): Promise<ScrapeResult> {
-  const apiKey = process.env.OPENSTATES_API_KEY
-  if (!apiKey) throw new Error('OPENSTATES_API_KEY env var is not set')
+    console.log(`[openstates:${state.toUpperCase()}] Fetching page ${page} (${perPage}/page)`)
+    const data = await fetchJson<BillsResponse>(url.toString(), apiKey)
+    await delay(RATE_LIMIT_MS)
+    return data.results ?? []
+  },
 
-  const stateUpper = state.toUpperCase()
-  const db = new PrismaClient()
-  // In-memory deduplication cache for this run: openStatesPersonId → dbPoliticianId
-  const politicianCache = new Map<string, string>()
+  /**
+   * Enriches each raw bill with its full text. Errors per bill are logged
+   * and the bill is kept with an empty fullText.
+   */
+  async parse(raw: OpenStatesBill[]): Promise<ParsedBill[]> {
+    const results: ParsedBill[] = []
+    for (const bill of raw) {
+      let fullText = ''
+      try {
+        fullText = await fetchBillText(bill.versions)
+      } catch (err) {
+        console.warn(`[openstates] parse: text fetch failed for ${bill.identifier}:`, err)
+      }
+      if (!fullText && bill.abstracts?.length) {
+        fullText = bill.abstracts[0]!.abstract
+      }
+      results.push({ raw: bill, fullText })
+    }
+    return results
+  },
 
-  let created = 0
-  let updated = 0
-  let errors = 0
-  let page = 1
-  let maxPage: number | null = null
+  /**
+   * Pure mapping — no I/O. Each parsed bill produces a document plus the
+   * list of politicians involved and their roles for that document.
+   */
+  normalize(state: string, parsed: ParsedBill[]): NormalizedStateBill[] {
+    const stateUpper = state.toUpperCase()
+    const fips = STATE_FIPS[stateUpper] ?? null
 
-  console.log(`[openstates:${stateUpper}] Scrape started`)
+    return parsed.map(({ raw, fullText }) => {
+      const sortedActions = [...raw.actions].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      )
+      const firstAction = sortedActions[0]
+      const lastAction = sortedActions[sortedActions.length - 1]
+      const jurisdiction = raw.jurisdiction.name
 
-  try {
-    while (true) {
-      const url = new URL(`${BASE_URL}/bills`)
-      url.searchParams.set('jurisdiction', state.toLowerCase())
-      url.searchParams.set('include', 'sponsorships,votes,versions,actions')
-      url.searchParams.set('page', String(page))
-      url.searchParams.set('per_page', String(PAGE_SIZE))
+      const sourceUrl =
+        raw.openstates_url ??
+        `https://openstates.org/${state.toLowerCase()}/bills/${raw.session}/${raw.identifier}/`
 
-      console.log(`[openstates:${stateUpper}] Fetching page ${page} / ${maxPage ?? '?'}`)
+      const politicianMap = new Map<string, NormalizedPolitician>()
+      const roles: NormalizedRole[] = []
 
-      const data = await fetchJson<BillsResponse>(url.toString(), apiKey)
-      await delay(RATE_LIMIT_MS)
-
-      if (maxPage === null) {
-        maxPage = data.pagination.max_page
-        console.log(`[openstates:${stateUpper}] Total bills: ${data.pagination.total_items}`)
+      for (const sponsorship of raw.sponsorships) {
+        if (!sponsorship.person?.id) continue
+        const p = buildPolitician(sponsorship.person, jurisdiction)
+        if (!politicianMap.has(p.openStatesId)) politicianMap.set(p.openStatesId, p)
+        roles.push({
+          openStatesId: p.openStatesId,
+          role: mapSponsorRole(sponsorship.classification),
+        })
       }
 
-      const bills = data.results ?? []
-      if (!bills.length) break
+      for (const voteEvent of raw.votes) {
+        for (const voteRecord of voteEvent.votes) {
+          if (!voteRecord.voter?.id) continue
+          const role = mapVoteRole(voteRecord.option)
+          if (!role) continue
+          const p = buildPolitician(voteRecord.voter, jurisdiction)
+          if (!politicianMap.has(p.openStatesId)) politicianMap.set(p.openStatesId, p)
+          roles.push({ openStatesId: p.openStatesId, role })
+        }
+      }
 
-      for (const bill of bills) {
+      return {
+        document: {
+          sourceUrl,
+          type: mapDocumentType(raw.classification),
+          level: 'state' as const,
+          jurisdiction,
+          jurisdictionFips: fips,
+          title: raw.title,
+          fullText,
+          summary: null,
+          status: mapStatus(raw.actions),
+          topics: raw.subject ?? [],
+          introducedDate: firstAction ? new Date(firstAction.date) : new Date(),
+          lastActionDate: lastAction ? new Date(lastAction.date) : new Date(),
+        },
+        politicians: Array.from(politicianMap.values()),
+        roles,
+      }
+    })
+  },
+
+  /**
+   * Persists everything: document upsert, politician upsert, document-politician
+   * joins. New documents are enqueued for summarization (silently skipped if
+   * Redis isn't running).
+   */
+  async upsertAll(state: string, items: NormalizedStateBill[]): Promise<ScrapeResult> {
+    const stateUpper = state.toUpperCase()
+    const db = new PrismaClient()
+    const politicianCache = new Map<string, string>()
+    let created = 0
+    let updated = 0
+    let errors = 0
+
+    try {
+      for (const item of items) {
         try {
-          // Sort actions chronologically to derive introduced/last-action dates
-          const sortedActions = [...bill.actions].sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-          )
-          const firstAction = sortedActions[0]
-          const lastAction = sortedActions[sortedActions.length - 1]
-
-          // Fetch full text; fall back to abstract
-          let fullText = await fetchBillText(bill.versions)
-          if (!fullText && bill.abstracts.length) {
-            fullText = bill.abstracts[0]!.abstract
-          }
-
-          const sourceUrl =
-            bill.openstates_url ??
-            `https://openstates.org/${state.toLowerCase()}/bills/${bill.session}/${bill.identifier}/`
-
-          const jurisdiction = bill.jurisdiction.name
-          const fips = STATE_FIPS[stateUpper] ?? null
-
-          const docData = {
-            sourceUrl,
-            type: mapDocumentType(bill.classification) as any,
-            level: 'state' as any,
-            jurisdiction,
-            jurisdictionFips: fips,
-            title: bill.title,
-            fullText,
-            summary: null,
-            status: mapStatus(bill.actions) as any,
-            topics: bill.subject ?? [],
-            introducedDate: firstAction ? new Date(firstAction.date) : new Date(),
-            lastActionDate: lastAction ? new Date(lastAction.date) : new Date(),
-          }
-
-          // Upsert document
-          const existingDoc = await db.civicDocument.findUnique({
-            where: { sourceUrl },
+          const existing = await db.civicDocument.findUnique({
+            where: { sourceUrl: item.document.sourceUrl },
             select: { id: true },
           })
 
           let documentId: string
           let isNew: boolean
 
-          if (existingDoc) {
-            await db.civicDocument.update({ where: { id: existingDoc.id }, data: docData })
-            documentId = existingDoc.id
+          if (existing) {
+            await db.civicDocument.update({
+              where: { id: existing.id },
+              data: item.document as any,
+            })
+            documentId = existing.id
             isNew = false
             updated++
-            console.log(`[openstates:${stateUpper}] Updated  ${bill.identifier}`)
           } else {
             const newDoc = await db.civicDocument.create({
-              data: docData,
+              data: item.document as any,
               select: { id: true },
             })
             documentId = newDoc.id
             isNew = true
             created++
-            console.log(`[openstates:${stateUpper}] Created  ${bill.identifier}`)
           }
 
           if (isNew) {
-            await getSummarizeQueue().add('summarize', { documentId })
-          }
-
-          // Upsert sponsors → DocumentPolitician
-          for (const sponsorship of bill.sponsorships) {
-            if (!sponsorship.person?.id) continue
             try {
-              const politicianId = await upsertPolitician(
-                db,
-                sponsorship.person,
-                jurisdiction,
-                politicianCache,
-              )
-              const role = mapSponsorRole(sponsorship.classification)
-              await db.documentPolitician.upsert({
-                where: {
-                  documentId_politicianId_role: { documentId, politicianId, role: role as any },
-                },
-                create: { documentId, politicianId, role: role as any },
-                update: {},
-              })
-            } catch (err) {
-              console.warn(`[openstates:${stateUpper}] Sponsor upsert failed for ${bill.identifier}:`, err)
+              await getSummarizeQueue().add('summarize', { documentId })
+            } catch {
+              // Redis may not be running in test environments — non-fatal
             }
           }
 
-          // Upsert individual vote records → DocumentPolitician
-          for (const voteEvent of bill.votes) {
-            for (const voteRecord of voteEvent.votes) {
-              if (!voteRecord.voter?.id) continue
-              const role = mapVoteRole(voteRecord.option)
-              if (!role) continue
-              try {
-                const politicianId = await upsertPolitician(
-                  db,
-                  voteRecord.voter,
-                  jurisdiction,
-                  politicianCache,
-                )
-                await db.documentPolitician.upsert({
-                  where: {
-                    documentId_politicianId_role: { documentId, politicianId, role: role as any },
-                  },
-                  create: { documentId, politicianId, role: role as any },
-                  update: {},
-                })
-              } catch (err) {
-                console.warn(`[openstates:${stateUpper}] Vote upsert failed for ${bill.identifier}:`, err)
-              }
-            }
+          for (const p of item.politicians) {
+            await upsertPolitician(db, p, politicianCache)
+          }
+
+          for (const r of item.roles) {
+            const politicianId = politicianCache.get(r.openStatesId)
+            if (!politicianId) continue
+            await db.documentPolitician.upsert({
+              where: {
+                documentId_politicianId_role: { documentId, politicianId, role: r.role as any },
+              },
+              create: { documentId, politicianId, role: r.role as any },
+              update: {},
+            })
           }
         } catch (err) {
           errors++
-          console.error(`[openstates:${stateUpper}] Error processing ${bill.identifier}:`, err)
+          console.error(`[openstates:${stateUpper}] upsertAll: error on ${item.document.sourceUrl}:`, err)
         }
       }
-
-      if (page >= maxPage) break
-      page++
+    } finally {
+      await db.$disconnect()
     }
-  } finally {
-    await db.$disconnect()
+
+    console.log(
+      `[openstates:${stateUpper}] upsertAll complete — created=${created} updated=${updated} errors=${errors}`,
+    )
+    return { state: stateUpper, created, updated, errors }
+  },
+}
+
+// ─── Full paginated scrape (used by the cron worker) ──────────────────────────
+
+export async function scrapeStateBills(state: string): Promise<ScrapeResult> {
+  const stateUpper = state.toUpperCase()
+  let totalCreated = 0
+  let totalUpdated = 0
+  let totalErrors = 0
+  let page = 1
+  let maxPage: number | null = null
+
+  console.log(`[openstates:${stateUpper}] Full scrape started`)
+
+  while (true) {
+    const raw = await openstatesScraper.fetch(state, page)
+    if (!raw.length) break
+
+    // BillsResponse pagination needs a separate call to know max_page — but
+    // we already have it from the first call. Re-fetch the pagination object
+    // by inspecting page length: if fewer than PAGE_SIZE results, this is the
+    // last page.
+    const parsed = await openstatesScraper.parse(raw)
+    const normalized = openstatesScraper.normalize(state, parsed)
+    const result = await openstatesScraper.upsertAll(state, normalized)
+
+    totalCreated += result.created
+    totalUpdated += result.updated
+    totalErrors += result.errors
+
+    if (raw.length < PAGE_SIZE) break
+    if (maxPage !== null && page >= maxPage) break
+    page++
   }
 
   console.log(
-    `[openstates:${stateUpper}] Scrape complete — created=${created} updated=${updated} errors=${errors}`,
+    `[openstates:${stateUpper}] Full scrape complete — created=${totalCreated} updated=${totalUpdated} errors=${totalErrors}`,
   )
-  return { state: stateUpper, created, updated, errors }
+  return { state: stateUpper, created: totalCreated, updated: totalUpdated, errors: totalErrors }
 }
 
 // ─── BullMQ cron job ──────────────────────────────────────────────────────────
 
-/**
- * Registers one repeating job scheduler per state on the openstates-scraper queue.
- * Scheduler IDs are state-specific so each state runs independently.
- * Call once at app startup; BullMQ deduplicates by scheduler ID.
- *
- * @example
- *   await registerOpenStatesCronJobs(openStatesScraperQueue, ['CA', 'TX', 'NY'])
- */
 export async function registerOpenStatesCronJobs(
   queue: Queue,
   states: string[],
@@ -432,17 +586,13 @@ export async function registerOpenStatesCronJobs(
     const stateUpper = state.toUpperCase()
     await queue.upsertJobScheduler(
       `openstates-${stateUpper}-cron`,
-      { pattern: '0 */12 * * *' }, // every 12 hours
+      { pattern: '0 */12 * * *' },
       { name: 'scrape-state', data: { state: stateUpper } },
     )
     console.log(`[openstates] Cron registered for ${stateUpper}: 0 */12 * * *`)
   }
 }
 
-/**
- * Creates and returns the BullMQ Worker that processes openstates-scraper jobs.
- * A single worker handles all states sequentially (concurrency: 1).
- */
 export function createOpenStatesScraperWorker(): Worker {
   return new Worker(
     'openstates-scraper',

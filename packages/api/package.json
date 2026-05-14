@@ -8,7 +8,8 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun run dist/index.js",
     "type-check": "tsc --noEmit",
-    "test:congress": "node --env-file=../db/.env --import tsx/esm src/test-congress.ts"
+    "test:congress": "node --env-file=../db/.env --import tsx/esm src/test-congress.ts",
+    "test:openstates": "node --env-file=../db/.env --import tsx/esm src/test-openstates.ts"
   },
   "dependencies": {
     "@civiclens/db": "workspace:*",
