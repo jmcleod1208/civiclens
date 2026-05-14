@@ -16,6 +16,7 @@ let _congressScraperQueue: Queue | undefined
 let _openStatesScraperQueue: Queue | undefined
 let _boardDocsScraperQueue: Queue | undefined
 let _summarizeQueue: Queue | undefined
+let _processPdfQueue: Queue | undefined
 
 export function getCongressScraperQueue(): Queue {
   return (_congressScraperQueue ??= new Queue('congress-scraper', {
@@ -46,6 +47,18 @@ export function getSummarizeQueue(): Queue {
       backoff: { type: 'exponential', delay: 5000 },
       removeOnComplete: 500,
       removeOnFail: 1000,
+    },
+  }))
+}
+
+export function getProcessPdfQueue(): Queue {
+  return (_processPdfQueue ??= new Queue('process-pdf', {
+    connection: getRedisConnection(),
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: 200,
+      removeOnFail: 500,
     },
   }))
 }

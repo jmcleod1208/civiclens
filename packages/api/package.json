@@ -10,15 +10,18 @@
     "type-check": "tsc --noEmit",
     "test:congress": "node --env-file=../db/.env --import tsx/esm src/test-congress.ts",
     "test:openstates": "node --env-file=../db/.env --import tsx/esm src/test-openstates.ts",
-    "test:boarddocs": "node --env-file=../db/.env --import tsx/esm src/test-boarddocs.ts"
+    "test:boarddocs": "node --env-file=../db/.env --import tsx/esm src/test-boarddocs.ts",
+    "test:process-pdf": "node --env-file=../db/.env --import tsx/esm src/test-process-pdf.ts"
   },
   "dependencies": {
     "@civiclens/db": "workspace:*",
     "@civiclens/shared": "workspace:*",
+    "@google/generative-ai": "^0.24.1",
     "bullmq": "^5.53.0",
     "fast-xml-parser": "^4.5.3",
     "hono": "^4.7.10",
-    "openai": "^4.100.0"
+    "openai": "^4.100.0",
+    "playwright": "^1.60.0"
   },
   "devDependencies": {
     "bun-types": "latest",
